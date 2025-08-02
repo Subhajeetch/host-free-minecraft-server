@@ -3,10 +3,14 @@ const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const http = require('http');
+const socketIo = require('socket.io');
 
 class MinecraftCrossplayServer {
     constructor() {
         this.app = express();
+        this.server = http.createServer(this.app);
+        this.io = socketIo(this.server);
         this.minecraftProcess = null;
         this.serverPath = './minecraft-server';
         this.jarFile = 'paper-server.jar';
@@ -14,14 +18,53 @@ class MinecraftCrossplayServer {
         this.bedrockPort = 19132;
         this.localIP = this.getLocalIP();
         this.publicIP = null;
-        this.serverStatus = 'offline'; // offline, starting, online, stopping
+        this.serverStatus = 'offline';
         this.startTime = null;
         this.serverReady = false;
+        this.logs = []; // Store recent logs
+        this.maxLogs = 1000; // Maximum logs to keep in memory
 
         this.setupExpress();
+        this.setupSocketIo();
         this.setupRoutes();
         this.setupServerProperties();
         this.getPublicIP();
+    }
+
+    setupSocketIo() {
+        this.io.on('connection', (socket) => {
+            console.log('📱 Web client connected');
+
+            // Send recent logs to newly connected client
+            socket.emit('recent-logs', this.logs);
+
+            socket.on('disconnect', () => {
+                console.log('📱 Web client disconnected');
+            });
+        });
+    }
+
+    broadcastLog(message, type = 'info') {
+        const logEntry = {
+            timestamp: new Date().toISOString(),
+            message: message,
+            type: type, // info, warn, error, success, player, world
+            time: new Date().toLocaleTimeString()
+        };
+
+        // Add to logs array
+        this.logs.push(logEntry);
+
+        // Keep only recent logs
+        if (this.logs.length > this.maxLogs) {
+            this.logs = this.logs.slice(-this.maxLogs);
+        }
+
+        // Broadcast to all connected web clients
+        this.io.emit('new-log', logEntry);
+
+        // Also log to console
+        console.log(`[${logEntry.time}] ${message}`);
     }
 
     getLocalIP() {
@@ -53,12 +96,12 @@ class MinecraftCrossplayServer {
                 });
                 res.on('end', () => {
                     this.publicIP = data.trim();
-                    console.log(`🌐 Public IP detected: ${this.publicIP}`);
+                    this.broadcastLog(`🌐 Public IP detected: ${this.publicIP}`, 'info');
                 });
             });
 
             req.on('error', (error) => {
-                console.log('Could not detect public IP:', error.message);
+                this.broadcastLog(`Could not detect public IP: ${error.message}`, 'warn');
                 this.publicIP = 'Unable to detect';
             });
 
@@ -97,7 +140,7 @@ class MinecraftCrossplayServer {
                     internet: this.publicIP !== 'Unable to detect' ? {
                         java: `${this.publicIP}:${this.javaPort}`,
                         bedrock: `${this.publicIP}:${this.bedrockPort}`,
-                        note: "Port forwarding required"
+                        note: "Port forwarding or ngrok required"
                     } : null
                 }
             });
@@ -185,9 +228,79 @@ require-resource-pack=false
         fs.writeFileSync(eulaPath, 'eula=true');
     }
 
+    parseMinecraftLog(message) {
+        // Parse different types of Minecraft logs and categorize them
+
+        // Player join/leave events
+        if (message.includes('joined the game')) {
+            const playerName = message.match(/(\w+) joined the game/)?.[1];
+            return { type: 'player', message: `🟢 ${playerName} joined the game`, original: message };
+        }
+
+        if (message.includes('left the game')) {
+            const playerName = message.match(/(\w+) left the game/)?.[1];
+            return { type: 'player', message: `🔴 ${playerName} left the game`, original: message };
+        }
+
+        // Chat messages
+        if (message.includes('<') && message.includes('>')) {
+            return { type: 'player', message: `💬 ${message}`, original: message };
+        }
+
+        // Server startup events
+        if (message.includes('Starting minecraft server version')) {
+            return { type: 'success', message: `🚀 ${message}`, original: message };
+        }
+
+        if (message.includes('Done (') && message.includes('For help, type "help"')) {
+            return { type: 'success', message: `✅ Server startup complete! ${message}`, original: message };
+        }
+
+        // World generation
+        if (message.includes('Preparing spawn area') || message.includes('Preparing level')) {
+            return { type: 'world', message: `🌍 ${message}`, original: message };
+        }
+
+        if (message.includes('Time elapsed:')) {
+            return { type: 'world', message: `⏱️ ${message}`, original: message };
+        }
+
+        // Plugin loading
+        if (message.includes('Loading') && message.includes('plugin')) {
+            return { type: 'info', message: `🔌 ${message}`, original: message };
+        }
+
+        if (message.includes('Enabling') && message.includes('plugin')) {
+            return { type: 'success', message: `✅ ${message}`, original: message };
+        }
+
+        // Geyser specific
+        if (message.includes('Geyser') && message.includes('Started Geyser')) {
+            return { type: 'success', message: `🔗 Crossplay bridge (Geyser) is ONLINE!`, original: message };
+        }
+
+        // ViaVersion specific
+        if (message.includes('ViaVersion') && message.includes('enabled')) {
+            return { type: 'success', message: `🔄 Multi-version support (ViaVersion) is ONLINE!`, original: message };
+        }
+
+        // Errors
+        if (message.includes('ERROR') || message.includes('SEVERE')) {
+            return { type: 'error', message: `❌ ${message}`, original: message };
+        }
+
+        // Warnings
+        if (message.includes('WARN')) {
+            return { type: 'warn', message: `⚠️ ${message}`, original: message };
+        }
+
+        // Default
+        return { type: 'info', message: message, original: message };
+    }
+
     startMinecraftServer() {
         if (this.minecraftProcess) {
-            console.log('⚠️  Server already running');
+            this.broadcastLog('⚠️ Server already running', 'warn');
             return;
         }
 
@@ -195,14 +308,10 @@ require-resource-pack=false
         this.serverReady = false;
         this.startTime = Date.now();
 
-        console.log('\n' + '='.repeat(60));
-        console.log('🚀 STARTING MINECRAFT CROSSPLAY SERVER');
-        console.log('='.repeat(60));
-        console.log('📡 Status: STARTING...');
-        console.log(`🏠 Local IP: ${this.localIP}`);
-        console.log(`🌐 Public IP: ${this.publicIP || 'Detecting...'}`);
-        console.log('⏳ Please wait while server initializes...');
-        console.log('='.repeat(60));
+        this.broadcastLog('🚀 STARTING MINECRAFT CROSSPLAY SERVER', 'success');
+        this.broadcastLog(`🏠 Local IP: ${this.localIP}`, 'info');
+        this.broadcastLog(`🌐 Public IP: ${this.publicIP || 'Detecting...'}`, 'info');
+        this.broadcastLog('⏳ Please wait while server initializes...', 'info');
 
         const javaArgs = [
             '-Xmx3G',
@@ -222,75 +331,56 @@ require-resource-pack=false
 
         this.minecraftProcess.stdout.on('data', (data) => {
             const message = data.toString().trim();
-            console.log(`[MC]: ${message}`);
+
+            // Parse and broadcast the log
+            const parsedLog = this.parseMinecraftLog(message);
+            this.broadcastLog(parsedLog.message, parsedLog.type);
 
             // Check for server ready state
             if (message.includes('Done (') && message.includes('For help, type "help"')) {
                 this.serverStatus = 'online';
                 this.serverReady = true;
-                console.log('\n' + '🎉'.repeat(20));
-                console.log('✅ SERVER IS NOW ONLINE!');
-                console.log('🎉'.repeat(20));
+                this.broadcastLog('🎉 SERVER IS NOW ONLINE! Friends can join!', 'success');
                 this.displayConnectionInfo();
-            }
-
-            // Check for Geyser startup
-            if (message.includes('Geyser') && message.includes('Started Geyser')) {
-                console.log('🔗 Crossplay bridge (Geyser) is ONLINE!');
             }
         });
 
         this.minecraftProcess.stderr.on('data', (data) => {
             const error = data.toString().trim();
-            console.error(`[MC ERROR]: ${error}`);
+            this.broadcastLog(`💥 Error: ${error}`, 'error');
         });
 
         this.minecraftProcess.on('close', (code) => {
-            console.log(`\n⏹️  Minecraft server exited with code ${code}`);
+            this.broadcastLog(`⏹️ Minecraft server exited with code ${code}`, code === 0 ? 'info' : 'error');
             this.minecraftProcess = null;
             this.serverStatus = 'offline';
             this.serverReady = false;
             this.startTime = null;
 
             if (code !== 0) {
-                console.log('💥 Server crashed! Check the error messages above.');
+                this.broadcastLog('💥 Server crashed! Check the error messages above.', 'error');
             } else {
-                console.log('✅ Server stopped normally.');
+                this.broadcastLog('✅ Server stopped normally.', 'success');
             }
         });
     }
 
     displayConnectionInfo() {
-        console.log('\n' + '='.repeat(70));
-        console.log('🎮 MINECRAFT CROSSPLAY SERVER IS ONLINE! 🎮');
-        console.log('='.repeat(70));
+        this.broadcastLog('🎮 MINECRAFT CROSSPLAY SERVER IS ONLINE! 🎮', 'success');
+        this.broadcastLog(`📱 Java Edition: localhost:${this.javaPort}`, 'info');
+        this.broadcastLog(`🎯 Bedrock Edition: localhost:${this.bedrockPort}`, 'info');
 
-        console.log('\n📱 JAVA EDITION CONNECTIONS:');
-        console.log(`   🏠 Local: localhost:${this.javaPort}`);
-        console.log(`   🏘️  Network: ${this.localIP}:${this.javaPort}`);
         if (this.publicIP && this.publicIP !== 'Unable to detect') {
-            console.log(`   🌐 Internet: ${this.publicIP}:${this.javaPort} (requires port forwarding)`);
+            this.broadcastLog(`🌐 Internet Java: ${this.publicIP}:${this.javaPort}`, 'info');
+            this.broadcastLog(`🌐 Internet Bedrock: ${this.publicIP}:${this.bedrockPort}`, 'info');
+            this.broadcastLog('📋 Share these addresses with friends!', 'success');
         }
-
-        console.log('\n🎯 BEDROCK EDITION CONNECTIONS:');
-        console.log(`   🏠 Local: localhost:${this.bedrockPort}`);
-        console.log(`   🏘️  Network: ${this.localIP}:${this.bedrockPort}`);
-        if (this.publicIP && this.publicIP !== 'Unable to detect') {
-            console.log(`   🌐 Internet: ${this.publicIP}:${this.bedrockPort} (requires port forwarding)`);
-        }
-
-        console.log('\n🌐 Management Panel: http://localhost:3000');
-        console.log('\n📋 FOR FRIENDS TO JOIN:');
-        console.log('   1. Share your public IP with friends');
-        console.log('   2. Set up port forwarding on your router');
-        console.log('   3. Ports to forward: 25565 (Java) & 19132 (Bedrock)');
-        console.log('='.repeat(70) + '\n');
     }
 
     stopMinecraftServer() {
         if (this.minecraftProcess) {
             this.serverStatus = 'stopping';
-            console.log('\n⏹️  Stopping Minecraft server...');
+            this.broadcastLog('⏹️ Stopping Minecraft server...', 'info');
             this.minecraftProcess.stdin.write('stop\n');
         }
     }
@@ -298,16 +388,15 @@ require-resource-pack=false
     executeCommand(command) {
         if (this.minecraftProcess && this.serverReady) {
             this.minecraftProcess.stdin.write(`${command}\n`);
-            console.log(`[COMMAND]: ${command}`);
+            this.broadcastLog(`📤 Command executed: ${command}`, 'info');
         }
     }
 
     start(port = 3000) {
-        this.app.listen(port, '0.0.0.0', () => {
-            console.log(`🚀 Minecraft Server Manager running on port ${port}`);
-            console.log(`📱 Local access: http://localhost:${port}`);
-            console.log(`🌐 Network access: http://${this.localIP}:${port}`);
-            console.log('='.repeat(50));
+        this.server.listen(port, '0.0.0.0', () => {
+            this.broadcastLog(`🚀 Minecraft Server Manager running on port ${port}`, 'success');
+            this.broadcastLog(`📱 Local access: http://localhost:${port}`, 'info');
+            this.broadcastLog(`🌐 Network access: http://${this.localIP}:${port}`, 'info');
         });
     }
 }

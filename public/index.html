@@ -321,12 +321,96 @@
         </div>
     </div>
 
+    <script src="/socket.io/socket.io.js"></script>
     <script>
         let currentStatus = 'offline';
         let previousStatus = null;
         let statusCheckInterval;
         let lastLoggedUptime = 0;
         let connectionInfoShown = false;
+        let socket;
+
+        // Initialize Socket.IO connection
+        function initializeSocket() {
+            socket = io();
+
+            socket.on('connect', () => {
+                log('🔗 Connected to server for real-time logs', 'success');
+            });
+
+            socket.on('disconnect', () => {
+                log('❌ Disconnected from server', 'error');
+            });
+
+            socket.on('new-log', (logEntry) => {
+                displayLog(logEntry);
+            });
+
+            socket.on('recent-logs', (logs) => {
+                // Display recent logs when page loads
+                logs.forEach(logEntry => {
+                    displayLog(logEntry, false); // Don't scroll for old logs
+                });
+            });
+        }
+
+        // Display log entry with color coding
+        function displayLog(logEntry, shouldScroll = true) {
+            const console = document.getElementById('console');
+            let color = '#0f0'; // Default green
+            let icon = '';
+
+            switch (logEntry.type) {
+                case 'error':
+                    color = '#ff4444';
+                    icon = '❌';
+                    break;
+                case 'warn':
+                    color = '#ffaa00';
+                    icon = '⚠️';
+                    break;
+                case 'success':
+                    color = '#44ff44';
+                    icon = '✅';
+                    break;
+                case 'player':
+                    color = '#44aaff';
+                    icon = '👤';
+                    break;
+                case 'world':
+                    color = '#aa44ff';
+                    icon = '🌍';
+                    break;
+                case 'info':
+                default:
+                    color = '#0f0';
+                    icon = 'ℹ️';
+                    break;
+            }
+
+            const logElement = document.createElement('div');
+            logElement.innerHTML = `
+                <span style="color: #888">[${logEntry.time}]</span> 
+                <span style="color: ${color}">${icon} ${logEntry.message}</span>
+            `;
+
+            console.appendChild(logElement);
+
+            // Keep only last 500 log entries to prevent memory issues
+            while (console.children.length > 500) {
+                console.removeChild(console.firstChild);
+            }
+
+            if (shouldScroll) {
+                console.scrollTop = console.scrollHeight;
+            }
+        }
+
+        // Initialize everything when page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            initializeSocket();
+            startStatusCheck();
+        });
 
         // Start status checking
         startStatusCheck();
@@ -337,13 +421,13 @@
                 const data = await response.json();
 
                 if (data.success) {
-                    log(`🚀 ${data.message}`);
+                    log(`🚀 ${data.message}`, 'success');
                     updateUI('starting');
                 } else {
-                    log(`❌ ${data.message}`);
+                    log(`❌ ${data.message}`, 'error');
                 }
             } catch (error) {
-                log(`❌ Error starting server: ${error.message}`);
+                log(`❌ Error starting server: ${error.message}`, 'error');
             }
         }
 
@@ -353,13 +437,13 @@
                 const data = await response.json();
 
                 if (data.success) {
-                    log(`⏹️ ${data.message}`);
+                    log(`⏹️ ${data.message}`, 'info');
                     updateUI('stopping');
                 } else {
-                    log(`❌ ${data.message}`);
+                    log(`❌ ${data.message}`, 'error');
                 }
             } catch (error) {
-                log(`❌ Error stopping server: ${error.message}`);
+                log(`❌ Error stopping server: ${error.message}`, 'error');
             }
         }
 
@@ -376,19 +460,19 @@
 
                 const data = await response.json();
                 if (data.success) {
-                    log(`📤 ${data.message}`);
+                    log(`📤 ${data.message}`, 'info');
                     if (!cmd) document.getElementById('commandInput').value = '';
                 } else {
-                    log(`❌ ${data.message}`);
+                    log(`❌ ${data.message}`, 'error');
                 }
             } catch (error) {
-                log(`❌ Error sending command: ${error.message}`);
+                log(`❌ Error sending command: ${error.message}`, 'error');
             }
         }
 
         async function refreshStatus() {
-            log('🔄 Manually refreshing status...');
-            await checkStatus(true); // Force logging
+            log('🔄 Manually refreshing status...', 'info');
+            await checkStatus(true);
         }
 
         async function checkStatus(forceLog = false) {
@@ -396,14 +480,12 @@
                 const response = await fetch('/status');
                 const data = await response.json();
 
-                // Only log if status changed or if forced
                 const statusChanged = data.status !== previousStatus;
 
                 if (statusChanged || forceLog) {
                     handleStatusChange(data.status, data, statusChanged);
                 }
 
-                // Always update UI (but don't log)
                 updateUI(data.status, data);
 
                 if (data.status === 'online' && data.connections) {
@@ -414,7 +496,7 @@
 
             } catch (error) {
                 if (forceLog) {
-                    log(`❌ Status check failed: ${error.message}`);
+                    log(`❌ Status check failed: ${error.message}`, 'error');
                 }
                 console.error('Status check failed:', error);
             }
@@ -424,37 +506,27 @@
             switch (newStatus) {
                 case 'offline':
                     if (statusChanged) {
-                        log('⏹️ Server is now OFFLINE');
+                        log('⏹️ Server is now OFFLINE', 'info');
                         connectionInfoShown = false;
                     }
                     break;
 
                 case 'starting':
                     if (statusChanged) {
-                        log('⚡ Server is STARTING UP...');
-                        log('⏳ Please wait while the server initializes...');
-                    }
-                    // Log progress every 10 seconds while starting
-                    if (data && data.uptime && data.uptime % 10 === 0 && data.uptime !== lastLoggedUptime) {
-                        log(`⏳ Starting for ${data.uptime} seconds...`);
-                        lastLoggedUptime = data.uptime;
+                        log('⚡ Server is STARTING UP...', 'info');
                     }
                     break;
 
                 case 'online':
                     if (statusChanged) {
-                        log('🎉 SERVER IS NOW ONLINE! Friends can join!');
-                        if (data && data.localIP && data.publicIP) {
-                            log(`🏠 Local: ${data.localIP}:25565 (Java) | ${data.localIP}:19132 (Bedrock)`);
-                            log(`🌐 Public: ${data.publicIP}:25565 (Java) | ${data.publicIP}:19132 (Bedrock)`);
-                        }
+                        log('🎉 SERVER IS NOW ONLINE! Friends can join!', 'success');
                         connectionInfoShown = true;
                     }
                     break;
 
                 case 'stopping':
                     if (statusChanged) {
-                        log('⏸️ Server is STOPPING...');
+                        log('⏸️ Server is STOPPING...', 'info');
                     }
                     break;
             }
@@ -470,8 +542,6 @@
             const commandInput = document.getElementById('commandInput');
 
             currentStatus = status;
-
-            // Reset classes
             indicator.className = 'status-indicator';
 
             switch (status) {
@@ -530,21 +600,18 @@
 
             let html = '';
 
-            // Local connections
             html += createConnectionCard('🏠 Local Access', 'For you on this computer', [
                 { label: 'Java Edition', address: connections.local.java },
                 { label: 'Bedrock Edition', address: connections.local.bedrock }
             ]);
 
-            // Network connections
             html += createConnectionCard('🏘️ Network Access', 'For devices on your WiFi', [
                 { label: 'Java Edition', address: connections.network.java },
                 { label: 'Bedrock Edition', address: connections.network.bedrock }
             ]);
 
-            // Internet connections
             if (connections.internet) {
-                html += createConnectionCard('🌐 Internet Access', 'For friends online (requires port forwarding)', [
+                html += createConnectionCard('🌐 Internet Access', 'For friends online (requires ngrok/port forwarding)', [
                     { label: 'Java Edition', address: connections.internet.java },
                     { label: 'Bedrock Edition', address: connections.internet.bedrock }
                 ]);
@@ -577,9 +644,9 @@
 
         function copyToClipboard(text) {
             navigator.clipboard.writeText(text).then(() => {
-                log(`📋 Copied to clipboard: ${text}`);
+                log(`📋 Copied to clipboard: ${text}`, 'success');
             }).catch(err => {
-                log(`❌ Failed to copy: ${err.message}`);
+                log(`❌ Failed to copy: ${err.message}`, 'error');
             });
         }
 
@@ -594,26 +661,44 @@
         }
 
         function startStatusCheck() {
-            log('🎮 Minecraft Server Manager loaded');
-            log('📡 Checking initial server status...');
-            checkStatus(true); // Initial check with logging
-            statusCheckInterval = setInterval(() => checkStatus(false), 2000); // Silent checks every 2 seconds
+            log('🎮 Minecraft Server Manager loaded', 'success');
+            log('📡 Checking initial server status...', 'info');
+            checkStatus(true);
+            statusCheckInterval = setInterval(() => checkStatus(false), 2000);
         }
 
-        function log(message) {
+        function log(message, type = 'info') {
+            // This function now only handles local UI logs
+            // Real Minecraft logs come through Socket.IO
             const console = document.getElementById('console');
             const timestamp = new Date().toLocaleTimeString();
-            console.innerHTML += `<span style="color: #888">[${timestamp}]</span> ${message}<br>`;
+
+            let color = '#0f0';
+            switch (type) {
+                case 'error': color = '#ff4444'; break;
+                case 'warn': color = '#ffaa00'; break;
+                case 'success': color = '#44ff44'; break;
+                case 'info': default: color = '#0f0'; break;
+            }
+
+            const logElement = document.createElement('div');
+            logElement.innerHTML = `<span style="color: #888">[${timestamp}]</span> <span style="color: ${color}">${message}</span>`;
+            console.appendChild(logElement);
+
+            while (console.children.length > 500) {
+                console.removeChild(console.firstChild);
+            }
+
             console.scrollTop = console.scrollHeight;
         }
 
-        // Allow Enter key for commands
         document.getElementById('commandInput').addEventListener('keypress', function (e) {
             if (e.key === 'Enter' && !this.disabled) {
                 sendCommand();
             }
         });
     </script>
+
 </body>
 
 </html>

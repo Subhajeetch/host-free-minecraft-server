@@ -12,8 +12,10 @@ yarn-error.log*
 .env.test.local
 .env.production.local
 
-# Minecraft server generated files
+# Minecraft server generated files (auto-generated, don't commit)
 minecraft-server/world/
+minecraft-server/world_nether/
+minecraft-server/world_the_end/
 minecraft-server/logs/
 minecraft-server/cache/
 minecraft-server/*.log
@@ -21,19 +23,36 @@ minecraft-server/banned-*.json
 minecraft-server/ops.json
 minecraft-server/usercache.json
 minecraft-server/whitelist.json
+minecraft-server/crash-reports/
+minecraft-server/debug/
 
-# Plugin generated files
+# Server auto-generated files
+minecraft-server/eula.txt
+minecraft-server/server.properties
+minecraft-server/paper-server.jar
+
+# Plugin generated files (auto-generated)
 minecraft-server/plugins/*/cache/
 minecraft-server/plugins/*/logs/
+minecraft-server/plugins/*/dumps/
 minecraft-server/plugins/bStats/
-minecraft-server/plugins/ViaVersion/
-minecraft-server/plugins/floodgate/
+minecraft-server/plugins/ViaVersion/cache/
+minecraft-server/plugins/ViaBackwards/cache/
+minecraft-server/plugins/floodgate/cache/
+minecraft-server/plugins/floodgate/key.pem
 minecraft-server/plugins/Geyser-Spigot/cache/
 minecraft-server/plugins/Geyser-Spigot/dumps/
 minecraft-server/plugins/Geyser-Spigot/locales/
+minecraft-server/plugins/Geyser-Spigot/packs/
 
-# Keep only essential files
-!minecraft-server/plugins/*.jar
+# Keep essential plugin files but ignore downloaded JARs (since they're auto-downloaded)
+minecraft-server/plugins/*.jar
+
+# Keep only essential plugin config files
+!minecraft-server/plugins/Geyser-Spigot/config.yml
+!minecraft-server/plugins/floodgate/config.yml
+!minecraft-server/plugins/ViaVersion/config.yml
+!minecraft-server/plugins/ViaBackwards/config.yml
 
 # OS generated files
 .DS_Store
@@ -59,3 +78,8 @@ Thumbs.db
 *.pid
 *.seed
 *.pid.lock
+
+# Build artifacts
+dist/
+build/
+
