@@ -58,6 +58,38 @@ minecraft-server/plugins/*.jar
 !minecraft-server/plugins/ViaVersion/config.yml
 !minecraft-server/plugins/ViaBackwards/config.yml
 
+
+# Additional Minecraft server files you might encounter
+minecraft-server/paper-world-defaults.yml
+minecraft-server/bukkit.yml
+minecraft-server/spigot.yml
+minecraft-server/paper.yml
+minecraft-server/permissions.yml
+minecraft-server/help.yml
+
+# Version/update files
+minecraft-server/version_history.json
+minecraft-server/.paper-remapped/
+
+# Backup files that might be created
+minecraft-server/*_backup_*/
+minecraft-server/world_backup_*/
+
+# Additional world data files
+minecraft-server/**/*.dat
+minecraft-server/**/*.dat_old
+minecraft-server/**/session.lock
+minecraft-server/**/uid.dat
+
+# Player data (if you don't want to track players)
+minecraft-server/world/playerdata/
+minecraft-server/world/stats/
+minecraft-server/world/advancements/
+
+# Additional plugin directories that might appear
+minecraft-server/plugins/PluginMetrics/
+minecraft-server/plugins/update/
+
 # OS generated files
 .DS_Store
 .DS_Store?
