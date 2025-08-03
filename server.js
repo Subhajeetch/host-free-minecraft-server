@@ -12,6 +12,7 @@ class MinecraftCrossplayServer {
         this.server = http.createServer(this.app);
         this.io = socketIo(this.server);
         this.minecraftProcess = null;
+        this.playitProcess = null;
         this.serverPath = './minecraft-server';
         this.jarFile = 'paper-server.jar';
         this.javaPort = 25565;
@@ -21,9 +22,23 @@ class MinecraftCrossplayServer {
         this.serverStatus = 'offline';
         this.startTime = null;
         this.serverReady = false;
-        this.logs = []; // Store recent logs
-        this.maxLogs = 1000; // Maximum logs to keep in memory
+        this.logs = [];
+        this.maxLogs = 1000;
 
+        // Load configuration
+        this.config = this.loadConfig();
+
+        // Playit.gg integration
+        this.playitInstalled = false;
+        this.playitAddresses = {
+            java: null,
+            bedrock: null
+        };
+        this.lastPlayitOutput = '';
+        this.playitTunnelsDetected = false;
+        this.playitSetupUrl = null;
+
+        this.checkPlayitInstallation();
         this.setupExpress();
         this.setupSocketIo();
         this.setupRoutes();
@@ -31,11 +46,366 @@ class MinecraftCrossplayServer {
         this.getPublicIP();
     }
 
+    // UPDATED: Load configuration with migration for existing configs
+    loadConfig() {
+        const configPath = './config.json';
+        try {
+            if (fs.existsSync(configPath)) {
+                const configData = fs.readFileSync(configPath, 'utf8');
+                const config = JSON.parse(configData);
+
+                // Migrate existing config to include world tracking
+                if (!config.world) {
+                    config.world = {
+                        currentSeed: config.server.seed || "",
+                        lastUsedSeed: config.server.seed || "",
+                        worldGenerated: true // Assume existing worlds are already generated
+                    };
+
+                    // Save the migrated config
+                    fs.writeFileSync(configPath, JSON.stringify(config, null, 4));
+                    this.broadcastLog('🔄 Config migrated to support seed change detection', 'info');
+                }
+
+                this.broadcastLog('✅ Configuration loaded successfully', 'success');
+                return config;
+            } else {
+                this.broadcastLog('⚠️ Config file not found, creating default config.json', 'warn');
+                return this.createDefaultConfig();
+            }
+        } catch (error) {
+            this.broadcastLog(`❌ Error loading config: ${error.message}`, 'error');
+            this.broadcastLog('📝 Using default configuration', 'info');
+            return this.createDefaultConfig();
+        }
+    }
+
+    // NEW: Create default configuration file
+    createDefaultConfig() {
+        const defaultConfig = {
+            "server": {
+                "seed": "",
+                "maxPlayers": 20,
+                "description": "Welcome to our Minecraft Crossplay Server! Java & Bedrock players welcome!",
+                "gamemode": "survival",
+                "difficulty": "easy",
+                "pvp": true,
+                "enableCommandBlock": true,
+                "allowNether": true,
+                "allowEnd": true,
+                "spawnProtection": 0,
+                "viewDistance": 10,
+                "simulationDistance": 10,
+                "levelName": "world",
+                "onlineMode": false,
+                "enableWhitelist": false,
+                "forceResourcePack": false
+            },
+            "performance": {
+                "maxMemory": "3G",
+                "minMemory": "1G"
+            },
+            "playit": {
+                "autoStart": true
+            },
+            "world": {
+                "currentSeed": "",
+                "lastUsedSeed": "",
+                "worldGenerated": false
+            }
+        };
+
+        try {
+            fs.writeFileSync('./config.json', JSON.stringify(defaultConfig, null, 4));
+            this.broadcastLog('📄 Default config.json created', 'success');
+        } catch (error) {
+            this.broadcastLog(`❌ Failed to create config file: ${error.message}`, 'error');
+        }
+
+        return defaultConfig;
+    }
+
+    // NEW: Save configuration changes
+    saveConfig() {
+        try {
+            fs.writeFileSync('./config.json', JSON.stringify(this.config, null, 4));
+            this.broadcastLog('💾 Configuration saved successfully', 'success');
+            return true;
+        } catch (error) {
+            this.broadcastLog(`❌ Failed to save config: ${error.message}`, 'error');
+            return false;
+        }
+    }
+
+    // NEW: Check if seed has changed and handle world creation accordingly
+    checkSeedChange() {
+        const currentSeed = this.config.server.seed || "";
+        const lastUsedSeed = this.config.world?.lastUsedSeed || "";
+        const worldPath = path.join(this.serverPath, this.config.server.levelName || 'world');
+        const worldExists = fs.existsSync(worldPath);
+
+        this.broadcastLog(`🌱 Checking world seed configuration...`, 'info');
+
+        // If no world exists, we'll create a new one
+        if (!worldExists) {
+            this.broadcastLog(`🆕 No existing world found - will generate new world`, 'info');
+            if (currentSeed) {
+                this.broadcastLog(`🌱 New world will use seed: ${currentSeed}`, 'info');
+            } else {
+                this.broadcastLog(`🎲 New world will use random seed`, 'info');
+            }
+            this.updateWorldConfig(currentSeed);
+            return { shouldCreateNew: true, reason: "no_world_exists" };
+        }
+
+        // If seeds are different, backup old world and create new one
+        if (currentSeed !== lastUsedSeed) {
+            this.broadcastLog(`🔄 Seed change detected!`, 'warn');
+            this.broadcastLog(`📊 Previous seed: "${lastUsedSeed}"`, 'info');
+            this.broadcastLog(`🆕 New seed: "${currentSeed}"`, 'info');
+
+            const backupResult = this.backupExistingWorld();
+            if (backupResult.success) {
+                this.updateWorldConfig(currentSeed);
+                return {
+                    shouldCreateNew: true,
+                    reason: "seed_changed",
+                    backupPath: backupResult.backupPath
+                };
+            } else {
+                this.broadcastLog(`❌ Failed to backup world: ${backupResult.error}`, 'error');
+                this.broadcastLog(`⚠️ Keeping existing world to prevent data loss`, 'warn');
+                return { shouldCreateNew: false, reason: "backup_failed" };
+            }
+        }
+
+        // Seeds are the same, use existing world
+        this.broadcastLog(`✅ Using existing world (seed unchanged)`, 'success');
+        return { shouldCreateNew: false, reason: "seed_unchanged" };
+    }
+
+    // NEW: Backup existing world before creating new one
+    backupExistingWorld() {
+        try {
+            const worldName = this.config.server.levelName || 'world';
+            const worldPath = path.join(this.serverPath, worldName);
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const backupName = `${worldName}_backup_${timestamp}`;
+            const backupPath = path.join(this.serverPath, backupName);
+
+            this.broadcastLog(`📦 Creating backup of existing world...`, 'info');
+
+            // Create backup directory
+            fs.mkdirSync(backupPath, { recursive: true });
+
+            // Copy world files
+            this.copyDirectorySync(worldPath, backupPath);
+
+            this.broadcastLog(`✅ World backup created: ${backupName}`, 'success');
+            this.broadcastLog(`📁 Backup location: ${backupPath}`, 'info');
+
+            // Remove original world
+            this.removeDirectorySync(worldPath);
+            this.broadcastLog(`🗑️ Original world removed to make space for new world`, 'info');
+
+            return { success: true, backupPath: backupName };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+
+    // NEW: Utility function to copy directory recursively
+    copyDirectorySync(src, dest) {
+        const stats = fs.statSync(src);
+        if (stats.isDirectory()) {
+            fs.mkdirSync(dest, { recursive: true });
+            const files = fs.readdirSync(src);
+            files.forEach(file => {
+                this.copyDirectorySync(path.join(src, file), path.join(dest, file));
+            });
+        } else {
+            fs.copyFileSync(src, dest);
+        }
+    }
+
+    // NEW: Utility function to remove directory recursively
+    removeDirectorySync(dirPath) {
+        if (fs.existsSync(dirPath)) {
+            fs.rmSync(dirPath, { recursive: true, force: true });
+        }
+    }
+
+    // NEW: Update world configuration
+    updateWorldConfig(seed) {
+        if (!this.config.world) {
+            this.config.world = {};
+        }
+
+        this.config.world.lastUsedSeed = seed;
+        this.config.world.currentSeed = seed;
+        this.config.world.worldGenerated = false;
+
+        this.saveConfig();
+    }
+
+    // NEW: Mark world as generated
+    markWorldAsGenerated() {
+        if (!this.config.world) {
+            this.config.world = {};
+        }
+
+        this.config.world.worldGenerated = true;
+        this.saveConfig();
+    }
+
+    checkPlayitInstallation() {
+        const playitPaths = [
+            './playit.exe',
+            './playit',
+            'playit.exe',
+            'playit'
+        ];
+
+        for (const playitPath of playitPaths) {
+            try {
+                if (fs.existsSync(playitPath) || this.commandExists(playitPath)) {
+                    this.playitInstalled = true;
+                    this.playitPath = playitPath;
+                    console.log(`✅ Playit.gg found at: ${playitPath}`);
+                    this.broadcastLog('✅ Playit.gg is installed - Public tunneling available!', 'success');
+                    break;
+                }
+            } catch (error) {
+                // Continue checking other paths
+            }
+        }
+
+        if (!this.playitInstalled) {
+            console.log('❌ Playit.gg is not installed - Server won\'t be available to the internet');
+            console.log('📥 For downloading Playit.gg go here: https://playit.gg/download');
+            this.broadcastLog('❌ Playit.gg is not installed - Server won\'t be available to the internet', 'warn');
+            this.broadcastLog('📥 Download Playit.gg from: https://playit.gg/download', 'info');
+        }
+    }
+
+    commandExists(command) {
+        try {
+            require('child_process').execSync(`${command} --version`, { stdio: 'ignore' });
+            return true;
+        } catch (error) {
+            return false;
+        }
+    }
+
+    parsePlayitOutput(output) {
+        const lines = output.split('\n');
+        let tunnelsFound = false;
+
+        for (const line of lines) {
+            const tunnelMatch = line.match(/^(.+?)\s+=>\s+127\.0\.0\.1:(\d+)/);
+            if (tunnelMatch) {
+                const address = tunnelMatch[1].trim();
+                const port = tunnelMatch[2];
+                tunnelsFound = true;
+
+                if (port === '25565') {
+                    if (this.playitAddresses.java !== address) {
+                        this.playitAddresses.java = address;
+                        this.broadcastLog(`🎮 Java tunnel ready: ${address}`, 'success');
+                    }
+                } else if (port === '19132') {
+                    if (this.playitAddresses.bedrock !== address) {
+                        this.playitAddresses.bedrock = address;
+                        this.broadcastLog(`📱 Bedrock tunnel ready: ${address}`, 'success');
+                    }
+                }
+            }
+        }
+
+        return tunnelsFound;
+    }
+
+    startPlayitTunnel() {
+        if (!this.playitInstalled) {
+            this.broadcastLog('⚠️ Playit.gg not installed - skipping tunnel creation', 'warn');
+            return;
+        }
+
+        if (this.playitProcess) {
+            this.broadcastLog('⚠️ Playit tunnel already running', 'warn');
+            return;
+        }
+
+        this.broadcastLog('🌐 Starting Playit.gg tunnels for public access...', 'info');
+
+        try {
+            this.playitProcess = spawn(this.playitPath, [], {
+                stdio: ['pipe', 'pipe', 'pipe']
+            });
+
+            this.playitProcess.stdout.on('data', (data) => {
+                const output = data.toString().trim();
+
+                if (output !== this.lastPlayitOutput) {
+                    this.lastPlayitOutput = output;
+
+                    const setupUrlMatch = output.match(/Visit link to setup (https:\/\/playit\.gg\/claim\/[a-zA-Z0-9]+)/);
+                    if (setupUrlMatch) {
+                        this.playitSetupUrl = setupUrlMatch[1];
+                        this.broadcastLog('[PLAYIT]: Setup required - Click "Setup Instructions" button for help', 'warn');
+                    }
+
+                    if (output.includes('Program approved')) {
+                        this.broadcastLog('[PLAYIT]: Program approved - Setting up tunnels...', 'success');
+                    }
+
+                    const tunnelsFound = this.parsePlayitOutput(output);
+                    if (tunnelsFound && !this.playitTunnelsDetected) {
+                        this.playitTunnelsDetected = true;
+                        this.broadcastLog('[PLAYIT]: Tunnels detected and active!', 'success');
+                    }
+                }
+            });
+
+            this.playitProcess.stderr.on('data', (data) => {
+                const error = data.toString().trim();
+                this.broadcastLog(`[PLAYIT ERROR]: ${error}`, 'error');
+            });
+
+            this.playitProcess.on('close', (code) => {
+                this.broadcastLog(`🌐 Playit tunnel exited with code ${code}`, code === 0 ? 'info' : 'error');
+                this.playitProcess = null;
+                this.playitAddresses.java = null;
+                this.playitAddresses.bedrock = null;
+                this.playitTunnelsDetected = false;
+            });
+
+        } catch (error) {
+            this.broadcastLog(`❌ Failed to start Playit tunnel: ${error.message}`, 'error');
+        }
+    }
+
+    stopPlayitTunnel() {
+        if (this.playitProcess) {
+            this.broadcastLog('🌐 Stopping Playit tunnels...', 'info');
+            this.playitProcess.kill('SIGTERM');
+            this.playitProcess = null;
+            this.playitAddresses.java = null;
+            this.playitAddresses.bedrock = null;
+            this.playitTunnelsDetected = false;
+        }
+    }
+
+    resetPlayitState() {
+        this.playitAddresses.java = null;
+        this.playitAddresses.bedrock = null;
+        this.playitTunnelsDetected = false;
+        this.playitSetupUrl = null;
+    }
+
     setupSocketIo() {
         this.io.on('connection', (socket) => {
             console.log('📱 Web client connected');
-
-            // Send recent logs to newly connected client
             socket.emit('recent-logs', this.logs);
 
             socket.on('disconnect', () => {
@@ -48,22 +418,17 @@ class MinecraftCrossplayServer {
         const logEntry = {
             timestamp: new Date().toISOString(),
             message: message,
-            type: type, // info, warn, error, success, player, world
+            type: type,
             time: new Date().toLocaleTimeString()
         };
 
-        // Add to logs array
         this.logs.push(logEntry);
 
-        // Keep only recent logs
         if (this.logs.length > this.maxLogs) {
             this.logs = this.logs.slice(-this.maxLogs);
         }
 
-        // Broadcast to all connected web clients
         this.io.emit('new-log', logEntry);
-
-        // Also log to console
         console.log(`[${logEntry.time}] ${message}`);
     }
 
@@ -117,6 +482,49 @@ class MinecraftCrossplayServer {
     }
 
     setupRoutes() {
+        // Config management routes
+        this.app.get('/config', (req, res) => {
+            res.json({
+                success: true,
+                config: this.config
+            });
+        });
+
+        this.app.post('/config', (req, res) => {
+            try {
+                const { config } = req.body;
+                if (!config) {
+                    return res.json({
+                        success: false,
+                        message: 'No configuration data provided'
+                    });
+                }
+
+                this.config = { ...this.config, ...config };
+                const saved = this.saveConfig();
+
+                if (saved) {
+                    // Regenerate server.properties with new config
+                    this.setupServerProperties();
+                    res.json({
+                        success: true,
+                        message: 'Configuration updated successfully. Restart server to apply changes.',
+                        config: this.config
+                    });
+                } else {
+                    res.json({
+                        success: false,
+                        message: 'Failed to save configuration'
+                    });
+                }
+            } catch (error) {
+                res.json({
+                    success: false,
+                    message: `Error updating config: ${error.message}`
+                });
+            }
+        });
+
         this.app.get('/status', (req, res) => {
             const uptime = this.startTime ? Math.floor((Date.now() - this.startTime) / 1000) : 0;
             res.json({
@@ -128,6 +536,14 @@ class MinecraftCrossplayServer {
                 publicIP: this.publicIP,
                 javaPort: this.javaPort,
                 bedrockPort: this.bedrockPort,
+                config: this.config,
+                playit: {
+                    installed: this.playitInstalled,
+                    running: this.playitProcess !== null,
+                    addresses: this.playitAddresses,
+                    setupUrl: this.playitSetupUrl,
+                    tunnelsActive: this.playitTunnelsDetected
+                },
                 connections: {
                     local: {
                         java: `localhost:${this.javaPort}`,
@@ -137,10 +553,10 @@ class MinecraftCrossplayServer {
                         java: `${this.localIP}:${this.javaPort}`,
                         bedrock: `${this.localIP}:${this.bedrockPort}`
                     },
-                    internet: this.publicIP !== 'Unable to detect' ? {
-                        java: `${this.publicIP}:${this.javaPort}`,
-                        bedrock: `${this.publicIP}:${this.bedrockPort}`,
-                        note: "Port forwarding or ngrok required"
+                    playit: this.playitInstalled ? {
+                        java: this.playitAddresses.java,
+                        bedrock: this.playitAddresses.bedrock,
+                        note: "Playit.gg tunneling"
                     } : null
                 }
             });
@@ -195,27 +611,33 @@ class MinecraftCrossplayServer {
         });
     }
 
+    // UPDATED: Use configuration values
     setupServerProperties() {
         const propertiesPath = path.join(this.serverPath, 'server.properties');
+        const config = this.config.server;
+
         const properties = `
 server-ip=0.0.0.0
 server-port=${this.javaPort}
-gamemode=survival
-difficulty=easy
-max-players=20
-motd=Crossplay Minecraft Server - Friends Welcome!
+level-seed=${config.seed || ''}
+gamemode=${config.gamemode || 'survival'}
+difficulty=${config.difficulty || 'easy'}
+max-players=${config.maxPlayers || 20}
+motd=${config.description || 'Crossplay Minecraft Server - Friends Welcome!'}
 server-name=CrossplayServer
-online-mode=false
-enforce-whitelist=false
-view-distance=10
-simulation-distance=10
+online-mode=${config.onlineMode || false}
+enforce-whitelist=${config.enableWhitelist || false}
+view-distance=${config.viewDistance || 10}
+simulation-distance=${config.simulationDistance || 10}
 enable-query=true
 query.port=${this.javaPort}
-level-name=world
-allow-nether=true
-enable-command-block=true
-spawn-protection=0
-require-resource-pack=false
+level-name=${config.levelName || 'world'}
+allow-nether=${config.allowNether !== false}
+allow-end=${config.allowEnd !== false}
+enable-command-block=${config.enableCommandBlock !== false}
+spawn-protection=${config.spawnProtection || 0}
+pvp=${config.pvp !== false}
+require-resource-pack=${config.forceResourcePack || false}
         `.trim();
 
         if (!fs.existsSync(this.serverPath)) {
@@ -226,11 +648,11 @@ require-resource-pack=false
 
         const eulaPath = path.join(this.serverPath, 'eula.txt');
         fs.writeFileSync(eulaPath, 'eula=true');
+
+        this.broadcastLog('📝 Server properties updated from configuration', 'info');
     }
 
     parseMinecraftLog(message) {
-        // Parse different types of Minecraft logs and categorize them
-
         // Player join/leave events
         if (message.includes('joined the game')) {
             const playerName = message.match(/(\w+) joined the game/)?.[1];
@@ -298,10 +720,23 @@ require-resource-pack=false
         return { type: 'info', message: message, original: message };
     }
 
+    // UPDATED: Start server with seed change detection
     startMinecraftServer() {
         if (this.minecraftProcess) {
             this.broadcastLog('⚠️ Server already running', 'warn');
             return;
+        }
+
+        // Check for seed changes before starting
+        const seedCheck = this.checkSeedChange();
+
+        if (seedCheck.shouldCreateNew) {
+            if (seedCheck.reason === "seed_changed") {
+                this.broadcastLog(`🎉 New world will be generated with seed: ${this.config.server.seed}`, 'success');
+                this.broadcastLog(`📦 Previous world backed up as: ${seedCheck.backupPath}`, 'info');
+            } else if (seedCheck.reason === "no_world_exists") {
+                this.broadcastLog(`🆕 Generating new world...`, 'success');
+            }
         }
 
         this.serverStatus = 'starting';
@@ -311,11 +746,29 @@ require-resource-pack=false
         this.broadcastLog('🚀 STARTING MINECRAFT CROSSPLAY SERVER', 'success');
         this.broadcastLog(`🏠 Local IP: ${this.localIP}`, 'info');
         this.broadcastLog(`🌐 Public IP: ${this.publicIP || 'Detecting...'}`, 'info');
+
+        // Log current configuration
+        const config = this.config.server;
+        this.broadcastLog(`🎮 Game mode: ${config.gamemode}, Difficulty: ${config.difficulty}`, 'info');
+        this.broadcastLog(`👥 Max players: ${config.maxPlayers}`, 'info');
+        if (config.seed) {
+            this.broadcastLog(`🌱 World seed: ${config.seed}`, 'info');
+        }
+
+        if (this.playitInstalled && this.config.playit.autoStart) {
+            this.broadcastLog('🌐 Playit.gg detected - Starting public tunnels...', 'success');
+            this.startPlayitTunnel();
+        } else {
+            this.broadcastLog('⚠️ Playit.gg not installed - Server will only be available locally/LAN', 'warn');
+        }
+
         this.broadcastLog('⏳ Please wait while server initializes...', 'info');
 
+        // Use config values for memory
+        const performance = this.config.performance;
         const javaArgs = [
-            '-Xmx3G',
-            '-Xms1G',
+            `-Xmx${performance.maxMemory}`,
+            `-Xms${performance.minMemory}`,
             '-XX:+UseG1GC',
             '-XX:+UnlockExperimentalVMOptions',
             '-XX:MaxGCPauseMillis=100',
@@ -331,15 +784,13 @@ require-resource-pack=false
 
         this.minecraftProcess.stdout.on('data', (data) => {
             const message = data.toString().trim();
-
-            // Parse and broadcast the log
             const parsedLog = this.parseMinecraftLog(message);
             this.broadcastLog(parsedLog.message, parsedLog.type);
 
-            // Check for server ready state
             if (message.includes('Done (') && message.includes('For help, type "help"')) {
                 this.serverStatus = 'online';
                 this.serverReady = true;
+                this.markWorldAsGenerated(); // Mark world as generated when server is ready
                 this.broadcastLog('🎉 SERVER IS NOW ONLINE! Friends can join!', 'success');
                 this.displayConnectionInfo();
             }
@@ -357,6 +808,9 @@ require-resource-pack=false
             this.serverReady = false;
             this.startTime = null;
 
+            this.resetPlayitState();
+            this.stopPlayitTunnel();
+
             if (code !== 0) {
                 this.broadcastLog('💥 Server crashed! Check the error messages above.', 'error');
             } else {
@@ -367,20 +821,29 @@ require-resource-pack=false
 
     displayConnectionInfo() {
         this.broadcastLog('🎮 MINECRAFT CROSSPLAY SERVER IS ONLINE! 🎮', 'success');
-        this.broadcastLog(`📱 Java Edition: localhost:${this.javaPort}`, 'info');
-        this.broadcastLog(`🎯 Bedrock Edition: localhost:${this.bedrockPort}`, 'info');
+        this.broadcastLog(`📱 Java Edition Local: localhost:${this.javaPort}`, 'info');
+        this.broadcastLog(`🎯 Bedrock Edition Local: localhost:${this.bedrockPort}`, 'info');
+        this.broadcastLog(`🏘️ Network Java: ${this.localIP}:${this.javaPort}`, 'info');
+        this.broadcastLog(`🏘️ Network Bedrock: ${this.localIP}:${this.bedrockPort}`, 'info');
 
-        if (this.publicIP && this.publicIP !== 'Unable to detect') {
-            this.broadcastLog(`🌐 Internet Java: ${this.publicIP}:${this.javaPort}`, 'info');
-            this.broadcastLog(`🌐 Internet Bedrock: ${this.publicIP}:${this.bedrockPort}`, 'info');
-            this.broadcastLog('📋 Share these addresses with friends!', 'success');
+        if (this.playitAddresses.java) {
+            this.broadcastLog(`🌐 Public Java (Playit): ${this.playitAddresses.java}`, 'success');
         }
+        if (this.playitAddresses.bedrock) {
+            this.broadcastLog(`🌐 Public Bedrock (Playit): ${this.playitAddresses.bedrock}`, 'success');
+        }
+
+        this.broadcastLog('📋 Share these addresses with friends!', 'success');
     }
 
     stopMinecraftServer() {
         if (this.minecraftProcess) {
             this.serverStatus = 'stopping';
             this.broadcastLog('⏹️ Stopping Minecraft server...', 'info');
+
+            this.resetPlayitState();
+            this.stopPlayitTunnel();
+
             this.minecraftProcess.stdin.write('stop\n');
         }
     }

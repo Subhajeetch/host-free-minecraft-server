@@ -1,0 +1,32 @@
+{
+    "server": {
+        "seed": "-7417157268905316998",
+        "maxPlayers": 20,
+        "description": "Made by MANTO999",
+        "gamemode": "survival",
+        "difficulty": "easy",
+        "pvp": true,
+        "enableCommandBlock": true,
+        "allowNether": true,
+        "allowEnd": true,
+        "spawnProtection": 0,
+        "viewDistance": 14,
+        "simulationDistance": 14,
+        "levelName": "world",
+        "onlineMode": false,
+        "enableWhitelist": false,
+        "forceResourcePack": false
+    },
+    "performance": {
+        "maxMemory": "6G",
+        "minMemory": "2G"
+    },
+    "playit": {
+        "autoStart": true
+    },
+    "world": {
+        "currentSeed": "-7417157268905316998",
+        "lastUsedSeed": "-7417157268905316998",
+        "worldGenerated": true
+    }
+}

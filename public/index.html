@@ -156,6 +156,11 @@
             color: white;
         }
 
+        .playit-help {
+            background: #ff9800;
+            color: white;
+        }
+
         .connection-info {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
@@ -218,22 +223,7 @@
             font-size: 14px;
         }
 
-        .port-forwarding-info {
-            background: rgba(255, 193, 7, 0.2);
-            border: 1px solid #ffc107;
-            border-radius: 8px;
-            padding: 15px;
-            margin-top: 20px;
-        }
 
-        .warning {
-            color: #ffc107;
-            font-weight: bold;
-        }
-
-        .hidden {
-            display: none;
-        }
 
         .grid-2 {
             display: grid;
@@ -253,6 +243,183 @@
             #commandInput {
                 width: 60%;
             }
+        }
+
+        /* Dialog Styles */
+        .dialog-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(5px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .dialog-content {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 15px;
+            padding: 30px;
+            max-width: 600px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            position: relative;
+        }
+
+        .dialog-header {
+            text-align: center;
+            margin-bottom: 25px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .dialog-header h3 {
+            font-size: 1.5em;
+            color: #ffd700;
+        }
+
+        .close-btn {
+            position: absolute;
+            top: 15px;
+            right: 20px;
+            background: #f44336;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 35px;
+            height: 35px;
+            cursor: pointer;
+            font-size: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+        }
+
+        .close-btn:hover {
+            background: #d32f2f;
+            transform: scale(1.1);
+        }
+
+        .dialog-body p {
+            margin-bottom: 20px;
+            line-height: 1.6;
+        }
+
+        .setup-steps {
+            margin-top: 20px;
+        }
+
+        .step {
+            display: flex;
+            margin-bottom: 25px;
+            align-items: flex-start;
+        }
+
+        .step-number {
+            background: #ffd700;
+            color: #333;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            margin-right: 15px;
+            flex-shrink: 0;
+        }
+
+        .step-content {
+            flex: 1;
+        }
+
+        .step-content h4 {
+            margin-bottom: 10px;
+            color: #ffd700;
+        }
+
+        .step-content h5 {
+            margin-bottom: 8px;
+            color: #fff;
+        }
+
+        .setup-link {
+            display: inline-block;
+            background: #4CAF50;
+            color: white;
+            padding: 12px 20px;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: bold;
+            margin-top: 10px;
+            transition: all 0.3s ease;
+        }
+
+        .setup-link:hover {
+            background: #45a049;
+            transform: translateY(-2px);
+        }
+
+        .tunnel-config {
+            margin-top: 15px;
+        }
+
+        .tunnel {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+
+        .tunnel ul {
+            list-style: none;
+            margin-top: 10px;
+        }
+
+        .tunnel li {
+            padding: 3px 0;
+            padding-left: 15px;
+            position: relative;
+        }
+
+        .tunnel li:before {
+            content: '•';
+            color: #ffd700;
+            position: absolute;
+            left: 0;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: scale(0.9);
+            }
+
+            to {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+
+        /* Playit Help Button Styles */
+        .playit-help-section {
+            text-align: center;
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .hidden {
+            display: none;
         }
     </style>
 </head>
@@ -286,12 +453,10 @@
                 <!-- Dynamic connection cards will be inserted here -->
             </div>
 
-            <div class="port-forwarding-info">
-                <h4 class="warning">📋 For Friends to Join Online:</h4>
-                <p>1. <strong>Port Forwarding:</strong> Configure your router to forward ports 25565 (Java) and 19132
-                    (Bedrock)</p>
-                <p>2. <strong>Share Public IP:</strong> Give your friends the "Internet" connection address</p>
-                <p>3. <strong>Firewall:</strong> Make sure Windows Firewall allows Minecraft connections</p>
+            <!-- NEW: Playit.gg Help Section -->
+            <div class="playit-help-section" id="playitHelpSection">
+                <p>Need help setting up public access?</p>
+                <button class="button playit-help" onclick="openPlayitDialog()">📋 Playit.gg Setup Instructions</button>
             </div>
         </div>
 
@@ -321,6 +486,69 @@
         </div>
     </div>
 
+    <!-- Playit.gg Setup Dialog -->
+    <div id="playitDialog" class="dialog-overlay hidden">
+        <div class="dialog-content">
+            <!-- NEW: Close Button -->
+            <button class="close-btn" onclick="closePlayitDialog()" title="Close">×</button>
+
+            <div class="dialog-header">
+                <h3>🌐 Playit.gg Setup Instructions</h3>
+            </div>
+            <div class="dialog-body">
+                <p>To make your server accessible from anywhere on the internet, you need to set up Playit.gg tunnels:
+                </p>
+
+                <div class="setup-steps">
+                    <div class="step">
+                        <span class="step-number">1</span>
+                        <div class="step-content">
+                            <h4>Sign in to Playit.gg</h4>
+                            <p>Click the link below to sign in and claim your agent:</p>
+                            <a id="playitSetupLink" href="https://playit.gg" target="_blank" class="setup-link">
+                                🔗 Setup Playit.gg Agent
+                            </a>
+                        </div>
+                    </div>
+
+                    <div class="step">
+                        <span class="step-number">2</span>
+                        <div class="step-content">
+                            <h4>Create 2 Tunnels</h4>
+                            <div class="tunnel-config">
+                                <div class="tunnel">
+                                    <h5>📱 Tunnel 1 - Java Edition:</h5>
+                                    <ul>
+                                        <li><strong>Protocol:</strong> TCP</li>
+                                        <li><strong>Local Port:</strong> 25565</li>
+                                        <li><strong>Name:</strong> Minecraft Java</li>
+                                    </ul>
+                                </div>
+                                <div class="tunnel">
+                                    <h5>🎯 Tunnel 2 - Bedrock Edition:</h5>
+                                    <ul>
+                                        <li><strong>Protocol:</strong> UDP</li>
+                                        <li><strong>Local Port:</strong> 19132</li>
+                                        <li><strong>Name:</strong> Minecraft Bedrock</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="step">
+                        <span class="step-number">3</span>
+                        <div class="step-content">
+                            <h4>Wait for Activation</h4>
+                            <p>Once you've created the tunnels, they will automatically appear in the connection
+                                information above.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="/socket.io/socket.io.js"></script>
     <script>
         let currentStatus = 'offline';
@@ -347,17 +575,43 @@
             });
 
             socket.on('recent-logs', (logs) => {
-                // Display recent logs when page loads
                 logs.forEach(logEntry => {
-                    displayLog(logEntry, false); // Don't scroll for old logs
+                    displayLog(logEntry, false);
                 });
             });
+
+            // REMOVED: No more 'playit-dialog' socket listener
+        }
+
+        // Manual dialog control only
+        function openPlayitDialog() {
+            // Get the current setup URL from server status
+            fetch('/status')
+                .then(response => response.json())
+                .then(data => {
+                    const setupLink = document.getElementById('playitSetupLink');
+                    if (data.playit && data.playit.setupUrl) {
+                        setupLink.href = data.playit.setupUrl;
+                    } else {
+                        setupLink.href = 'https://playit.gg';
+                    }
+                    document.getElementById('playitDialog').classList.remove('hidden');
+                })
+                .catch(error => {
+                    // Fallback to generic playit.gg link
+                    document.getElementById('playitSetupLink').href = 'https://playit.gg';
+                    document.getElementById('playitDialog').classList.remove('hidden');
+                });
+        }
+
+        function closePlayitDialog() {
+            document.getElementById('playitDialog').classList.add('hidden');
         }
 
         // Display log entry with color coding
         function displayLog(logEntry, shouldScroll = true) {
             const console = document.getElementById('console');
-            let color = '#0f0'; // Default green
+            let color = '#0f0';
             let icon = '';
 
             switch (logEntry.type) {
@@ -390,13 +644,12 @@
 
             const logElement = document.createElement('div');
             logElement.innerHTML = `
-                <span style="color: #888">[${logEntry.time}]</span> 
-                <span style="color: ${color}">${icon} ${logEntry.message}</span>
-            `;
+            <span style="color: #888">[${logEntry.time}]</span> 
+            <span style="color: ${color}">${icon} ${logEntry.message}</span>
+        `;
 
             console.appendChild(logElement);
 
-            // Keep only last 500 log entries to prevent memory issues
             while (console.children.length > 500) {
                 console.removeChild(console.firstChild);
             }
@@ -406,14 +659,10 @@
             }
         }
 
-        // Initialize everything when page loads
         document.addEventListener('DOMContentLoaded', () => {
             initializeSocket();
             startStatusCheck();
         });
-
-        // Start status checking
-        startStatusCheck();
 
         async function startServer() {
             try {
@@ -489,7 +738,7 @@
                 updateUI(data.status, data);
 
                 if (data.status === 'online' && data.connections) {
-                    updateConnectionInfo(data.connections, data.publicIP);
+                    updateConnectionInfo(data.connections, data.publicIP, data);
                 }
 
                 previousStatus = data.status;
@@ -508,6 +757,8 @@
                     if (statusChanged) {
                         log('⏹️ Server is now OFFLINE', 'info');
                         connectionInfoShown = false;
+                        // Close dialog when server goes offline
+                        closePlayitDialog();
                     }
                     break;
 
@@ -595,29 +846,43 @@
             }
         }
 
-        function updateConnectionInfo(connections, publicIP) {
+        function updateConnectionInfo(connections, publicIP, data = null) {
             const grid = document.getElementById('connectionGrid');
 
             let html = '';
 
+            // Local connections
             html += createConnectionCard('🏠 Local Access', 'For you on this computer', [
                 { label: 'Java Edition', address: connections.local.java },
                 { label: 'Bedrock Edition', address: connections.local.bedrock }
             ]);
 
+            // Network connections
             html += createConnectionCard('🏘️ Network Access', 'For devices on your WiFi', [
                 { label: 'Java Edition', address: connections.network.java },
                 { label: 'Bedrock Edition', address: connections.network.bedrock }
             ]);
 
-            if (connections.internet) {
-                html += createConnectionCard('🌐 Internet Access', 'For friends online (requires ngrok/port forwarding)', [
-                    { label: 'Java Edition', address: connections.internet.java },
-                    { label: 'Bedrock Edition', address: connections.internet.bedrock }
-                ]);
+            // Playit.gg connections
+            if (data && data.playit && data.playit.installed) {
+                if (data.playit.addresses.java || data.playit.addresses.bedrock) {
+                    const playitConnections = [];
+                    if (data.playit.addresses.java) {
+                        playitConnections.push({ label: 'Java Edition', address: data.playit.addresses.java });
+                    }
+                    if (data.playit.addresses.bedrock) {
+                        playitConnections.push({ label: 'Bedrock Edition', address: data.playit.addresses.bedrock });
+                    }
+                    html += createConnectionCard('🌐 Public Access (Playit.gg)', 'For friends anywhere on the internet', playitConnections);
+                } else {
+                    html += createConnectionCard('🌐 Public Access (Playit.gg)', 'Setting up tunnels...', [
+                        { label: 'Status', address: 'Tunnels are being created...' }
+                    ]);
+                }
             } else {
-                html += createConnectionCard('🌐 Internet Access', 'Public IP detection failed', [
-                    { label: 'Status', address: 'Unable to detect public IP' }
+                html += createConnectionCard('🌐 Public Access (Playit.gg)', 'Not available', [
+                    { label: 'Status', address: '❌ Playit.gg not installed' },
+                    { label: 'Download from', address: 'https://playit.gg/download' }
                 ]);
             }
 
@@ -627,19 +892,19 @@
         function createConnectionCard(title, subtitle, connections) {
             let connectionsHtml = connections.map(conn =>
                 `<div class="connection-type">${conn.label}:</div>
-                 <div class="ip-address">
-                     ${conn.address}
-                     <button class="copy-btn" onclick="copyToClipboard('${conn.address}')">📋 Copy</button>
-                 </div>`
+             <div class="ip-address">
+                 ${conn.address}
+                 <button class="copy-btn" onclick="copyToClipboard('${conn.address}')">📋 Copy</button>
+             </div>`
             ).join('');
 
             return `
-                <div class="connection-card">
-                    <h4>${title}</h4>
-                    <p style="opacity: 0.8; margin-bottom: 15px;">${subtitle}</p>
-                    ${connectionsHtml}
-                </div>
-            `;
+            <div class="connection-card">
+                <h4>${title}</h4>
+                <p style="opacity: 0.8; margin-bottom: 15px;">${subtitle}</p>
+                ${connectionsHtml}
+            </div>
+        `;
         }
 
         function copyToClipboard(text) {
@@ -668,8 +933,6 @@
         }
 
         function log(message, type = 'info') {
-            // This function now only handles local UI logs
-            // Real Minecraft logs come through Socket.IO
             const console = document.getElementById('console');
             const timestamp = new Date().toLocaleTimeString();
 
@@ -692,9 +955,18 @@
             console.scrollTop = console.scrollHeight;
         }
 
+        startStatusCheck();
+
         document.getElementById('commandInput').addEventListener('keypress', function (e) {
             if (e.key === 'Enter' && !this.disabled) {
                 sendCommand();
+            }
+        });
+
+        // Close dialog when clicking outside
+        document.getElementById('playitDialog').addEventListener('click', function (e) {
+            if (e.target === this) {
+                closePlayitDialog();
             }
         });
     </script>
