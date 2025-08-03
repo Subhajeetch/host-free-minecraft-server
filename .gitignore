@@ -45,6 +45,10 @@ minecraft-server/plugins/Geyser-Spigot/dumps/
 minecraft-server/plugins/Geyser-Spigot/locales/
 minecraft-server/plugins/Geyser-Spigot/packs/
 
+# Backup files that might be created
+minecraft-server/*_backup_*/
+minecraft-server/world_backup_*/
+
 # Keep essential plugin files but ignore downloaded JARs (since they're auto-downloaded)
 minecraft-server/plugins/*.jar
 
