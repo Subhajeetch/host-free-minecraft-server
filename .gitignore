@@ -105,7 +105,7 @@ Thumbs.db
 *.swp
 *.swo
 
-# Temporary files
+# Temporary filess
 *.tmp
 *.temp
 /tmp/
