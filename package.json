@@ -4,8 +4,8 @@
   "description": "Minecraft Crossplay Server with Java and Bedrock support",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "build": "npm install"
+    "start": "node src/app.js",
+    "dev": "nodemon src/app.js"
   },
   "engines": {
     "node": ">=18.0.0"

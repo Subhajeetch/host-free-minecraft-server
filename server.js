@@ -94,9 +94,9 @@ class MinecraftCrossplayServer {
                 "allowNether": true,
                 "allowEnd": true,
                 "spawnProtection": 0,
-                "viewDistance": 10,
-                "simulationDistance": 10,
-                "levelName": "world",
+                "viewDistance": 14,
+                "simulationDistance": 14,
+                "levelName": "EYESMP",
                 "onlineMode": false,
                 "enableWhitelist": false,
                 "forceResourcePack": false
@@ -637,7 +637,7 @@ allow-end=${config.allowEnd !== false}
 enable-command-block=${config.enableCommandBlock !== false}
 spawn-protection=${config.spawnProtection || 0}
 pvp=${config.pvp !== false}
-require-resource-pack=${config.forceResourcePack || false}
+require-resource-pack=${config.forceResourcePack || false}  
         `.trim();
 
         if (!fs.existsSync(this.serverPath)) {
