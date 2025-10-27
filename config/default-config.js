@@ -4,7 +4,7 @@ module.exports = {
         "maxPlayers": 20,
         "description": "Made by MANTO999",
         "gamemode": "survival",
-        "difficulty": "easy",
+        "difficulty": "hard",
         "pvp": true,
         "enableCommandBlock": true,
         "allowNether": true,

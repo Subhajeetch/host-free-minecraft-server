@@ -27,6 +27,7 @@
     "world": {
         "currentSeed": "-7417157268905316998",
         "lastUsedSeed": "-7417157268905316998",
-        "worldGenerated": true
-    }
+        "worldGenerated": false
+    },
+    "serverName": "EYESMP"
 }

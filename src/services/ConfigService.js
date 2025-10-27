@@ -79,9 +79,9 @@ class ConfigService {
         return propertiesTemplate
             .replace('{SEED}', config.seed || '')
             .replace('{GAMEMODE}', config.gamemode || 'survival')
-            .replace('{DIFFICULTY}', config.difficulty || 'easy')
+            .replace('{DIFFICULTY}', config.difficulty || 'hard')
             .replace('{MAX_PLAYERS}', config.maxPlayers || 20)
-            .replace('{MOTD}', config.description || 'Crossplay Minecraft Server')
+            .replace('{MOTD}', config.description || 'Made by MANTO999')
             .replace('{ONLINE_MODE}', config.onlineMode || false)
             .replace('{WHITELIST}', config.enableWhitelist || false)
             .replace('{VIEW_DISTANCE}', config.viewDistance || 10)
